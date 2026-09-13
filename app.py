@@ -1,53 +1,49 @@
 import os
 import streamlit as st
 
+from scan.scan import scan_product
 from ocr import run_ocr, get_average_confidence
 from parser import parse_product
 from validator import validate_product
-
-from history import (
-    load_history,
-    save_scan,
-    create_scan_id
-)
+from history import save_scan, load_history, create_scan_id
 
 
-# --------------------------------------------------
-# PAGE CONFIG
-# --------------------------------------------------
+# =========================================================
+# PAGE CONFIGURATION
+# =========================================================
 
 st.set_page_config(
-    page_title="LabelGuard",
-    page_icon="🔍",
+    page_title="FMCG Label Compliance Auditor",
+    page_icon="📦",
     layout="wide"
 )
 
 
-# --------------------------------------------------
-# CSS
-# --------------------------------------------------
+# =========================================================
+# CUSTOM CSS
+# =========================================================
 
 st.markdown(
     """
     <style>
 
     .main-title {
-        font-size: 42px;
+        font-size: 32px;
         font-weight: 700;
-        margin-bottom: 0px;
+        margin-bottom: 5px;
     }
 
     .subtitle {
-        font-size: 18px;
         color: #666;
+        font-size: 16px;
         margin-bottom: 25px;
     }
 
-    .history-card {
-        padding: 12px;
+    .result-box {
+        padding: 20px;
         border-radius: 10px;
         border: 1px solid #ddd;
-        margin-bottom: 10px;
+        margin-top: 20px;
     }
 
     </style>
@@ -56,72 +52,419 @@ st.markdown(
 )
 
 
-# --------------------------------------------------
-# SESSION STATE
-# --------------------------------------------------
-
-if "page" not in st.session_state:
-
-    st.session_state.page = "scan"
-
-
-if "selected_scan" not in st.session_state:
-
-    st.session_state.selected_scan = None
-
-
-# --------------------------------------------------
+# =========================================================
 # SIDEBAR
-# --------------------------------------------------
+# =========================================================
 
-with st.sidebar:
+st.sidebar.title("📦 FMCG Auditor")
 
-    st.title("🔍 LabelGuard")
-
-    st.divider()
-
-    # Scan Product
-    if st.button(
+page = st.sidebar.radio(
+    "Navigation",
+    [
         "📷 Scan Product",
-        use_container_width=True
-    ):
+        "📚 History"
+    ]
+)
 
-        st.session_state.page = "scan"
 
-        st.session_state.selected_scan = None
+# =========================================================
+# SCAN PRODUCT PAGE
+# =========================================================
 
-    # History
-    if st.button(
-        "📚 History",
-        use_container_width=True
-    ):
+if page == "📷 Scan Product":
 
-        st.session_state.page = "history"
+    st.markdown(
+        '<div class="main-title">AI-Based FMCG Label Compliance Auditor</div>',
+        unsafe_allow_html=True
+    )
 
-        st.session_state.selected_scan = None
+    st.markdown(
+        '<div class="subtitle">'
+        'Upload the front and back images of a packaged commodity '
+        'to analyze its label.'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
+    # -----------------------------------------------------
+    # IMAGE UPLOAD
+    # -----------------------------------------------------
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.subheader("📸 Front Image")
+
+        front_image = st.file_uploader(
+            "Upload front side",
+            type=["jpg", "jpeg", "png"],
+            key="front_image"
+        )
+
+        if front_image is not None:
+            st.image(
+                front_image,
+                caption="Front side",
+                width="stretch"
+            )
+
+    with col2:
+
+        st.subheader("📸 Back Image")
+
+        back_image = st.file_uploader(
+            "Upload back side",
+            type=["jpg", "jpeg", "png"],
+            key="back_image"
+        )
+
+        if back_image is not None:
+            st.image(
+                back_image,
+                caption="Back side",
+                width="stretch"
+            )
+
 
     st.divider()
 
-    st.caption(
-        "AI-Assisted Packaged Commodity "
-        "Label Compliance Prototype"
+
+    # -----------------------------------------------------
+    # SCAN BUTTON
+    # -----------------------------------------------------
+
+    scan_button = st.button(
+        "🔍 Scan Product",
+        width="stretch"
     )
 
 
-# ==================================================
+    if scan_button:
+
+        if front_image is None:
+
+            st.error(
+                "Please upload the front image."
+            )
+
+        else:
+
+            # -------------------------------------------------
+            # STEP 1: IMAGE SCANNING
+            # -------------------------------------------------
+
+            with st.spinner("Validating and saving images..."):
+
+                scan_result = scan_product(
+                    front_image,
+                    back_image
+                )
+
+
+            # -------------------------------------------------
+            # CHECK SCAN RESULT
+            # -------------------------------------------------
+
+            if scan_result["status"] != "SUCCESS":
+
+                st.error("Image scanning failed.")
+
+                for error in scan_result["errors"]:
+                    st.warning(error)
+
+            else:
+
+                st.success(
+                    "Images validated and saved successfully."
+                )
+
+
+                # ---------------------------------------------
+                # IMAGE METADATA
+                # ---------------------------------------------
+
+                with st.expander("🖼️ Image Information"):
+
+                    if scan_result["front_image"]:
+
+                        st.write("### Front Image")
+
+                        st.json(
+                            scan_result["metadata"]["front"]
+                        )
+
+
+                    if scan_result["back_image"]:
+
+                        st.write("### Back Image")
+
+                        st.json(
+                            scan_result["metadata"]["back"]
+                        )
+
+
+                # -------------------------------------------------
+                # STEP 2: OCR
+                # -------------------------------------------------
+
+                with st.spinner(
+                    "Extracting text from product images..."
+                ):
+
+                    front_ocr = run_ocr(
+                        scan_result["front_image"]
+                    )
+
+                    back_ocr = []
+
+                    if scan_result["back_image"]:
+
+                        back_ocr = run_ocr(
+                            scan_result["back_image"]
+                        )
+
+
+                # Combine OCR results
+
+                ocr_results = (
+                    front_ocr +
+                    back_ocr
+                )
+
+
+                # -------------------------------------------------
+                # OCR RESULT
+                # -------------------------------------------------
+
+                if not ocr_results:
+
+                    st.warning(
+                        "No text was detected from the images."
+                    )
+
+                else:
+
+                    st.success(
+                        f"{len(ocr_results)} text elements detected."
+                    )
+
+
+                # -------------------------------------------------
+                # OCR CONFIDENCE
+                # -------------------------------------------------
+
+                average_confidence = (
+                    get_average_confidence(
+                        ocr_results
+                    )
+                )
+
+
+                st.metric(
+                    "Average OCR Confidence",
+                    f"{average_confidence * 100:.1f}%"
+                )
+
+
+                # -------------------------------------------------
+                # STEP 3: PARSER
+                # -------------------------------------------------
+
+                with st.spinner(
+                    "Extracting product information..."
+                ):
+
+                    product_data = parse_product(
+                        ocr_results
+                    )
+
+
+                # -------------------------------------------------
+                # STEP 4: VALIDATION
+                # -------------------------------------------------
+
+                with st.spinner(
+                    "Checking extracted information..."
+                ):
+
+                    validation_result = validate_product(
+                        product_data,
+                        ocr_results
+                    )
+
+
+                # -------------------------------------------------
+                # RESULT
+                # -------------------------------------------------
+
+                st.divider()
+
+                st.subheader("📊 Compliance Result")
+
+                status = validation_result["status"]
+
+
+                if status == "COMPLIANT":
+
+                    st.success(
+                        "✅ COMPLIANT"
+                    )
+
+                elif status == "NEEDS REVIEW":
+
+                    st.warning(
+                        "⚠️ NEEDS REVIEW"
+                    )
+
+                else:
+
+                    st.error(
+                        "❌ POTENTIAL VIOLATION"
+                    )
+
+
+                # -------------------------------------------------
+                # EXTRACTED DECLARATIONS
+                # -------------------------------------------------
+
+                st.subheader(
+                    "📋 Extracted Product Information"
+                )
+
+                col1, col2 = st.columns(2)
+
+
+                with col1:
+
+                    st.write(
+                        "**MRP:**",
+                        product_data.get("mrp")
+                    )
+
+                    st.write(
+                        "**Net Quantity:**",
+                        product_data.get("quantity")
+                    )
+
+                    st.write(
+                        "**Manufacturer:**",
+                        product_data.get("manufacturer")
+                    )
+
+
+                with col2:
+
+                    st.write(
+                        "**Importer:**",
+                        product_data.get("importer")
+                    )
+
+                    st.write(
+                        "**Consumer Care:**",
+                        product_data.get("consumer_care")
+                    )
+
+
+                # -------------------------------------------------
+                # ISSUES
+                # -------------------------------------------------
+
+                if validation_result["issues"]:
+
+                    st.subheader(
+                        "⚠️ Issues Detected"
+                    )
+
+                    for issue in validation_result["issues"]:
+
+                        st.warning(issue)
+
+
+                # -------------------------------------------------
+                # RAW OCR
+                # -------------------------------------------------
+
+                with st.expander(
+                    "🔎 View Raw OCR Text"
+                ):
+
+                    for item in ocr_results:
+
+                        st.write(
+                            f"**{item['text']}** "
+                            f"(confidence: "
+                            f"{item['confidence']:.2f})"
+                        )
+
+
+                # -------------------------------------------------
+                # SAVE HISTORY
+                # -------------------------------------------------
+
+                scan_id = create_scan_id()
+
+
+                history_record = {
+
+                    "scan_id": scan_id,
+
+                    "front_image": scan_result[
+                        "front_image"
+                    ],
+
+                    "back_image": scan_result[
+                        "back_image"
+                    ],
+
+                    "metadata": scan_result[
+                        "metadata"
+                    ],
+
+                    "product_data": product_data,
+
+                    "validation": validation_result,
+
+                    "ocr_confidence": average_confidence
+                }
+
+
+                save_scan(
+                    history_record
+                )
+
+
+                st.success(
+                    "✅ Scan saved to history."
+                )
+
+
+# =========================================================
 # HISTORY PAGE
-# ==================================================
+# =========================================================
 
-if st.session_state.page == "history":
+elif page == "📚 History":
 
-    st.title("📚 Scan History")
+    st.markdown(
+        '<div class="main-title">📚 Scan History</div>',
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        '<div class="subtitle">'
+        'Previously scanned products'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
 
     history = load_history()
+
 
     if not history:
 
         st.info(
-            "No products have been scanned yet."
+            "No scanned products yet."
         )
 
     else:
@@ -130,614 +473,132 @@ if st.session_state.page == "history":
             f"Total scans: **{len(history)}**"
         )
 
-        st.divider()
 
-        for scan in history:
+        # -------------------------------------------------
+        # DISPLAY HISTORY
+        # -------------------------------------------------
 
-            scan_id = scan["scan_id"]
+        for index, scan in enumerate(history):
 
-            date = scan["date"]
-
-            status = scan["status"]
-
-            product = scan["product"]
-
-            if status == "COMPLIANT":
-
-                status_icon = "✅"
-
-            else:
-
-                status_icon = "⚠️"
-
-            st.markdown(
-                f"""
-                ### {status_icon} Scan {scan_id}
-
-                **Date:** {date}
-
-                **MRP:** {product.get("mrp") or "Not detected"}
-
-                **Quantity:** {product.get("quantity") or "Not detected"}
-
-                **Status:** {status}
-                """
+            scan_id = scan.get(
+                "scan_id",
+                f"Scan {index + 1}"
             )
 
-            if st.button(
-                "View Scan",
-                key=f"view_{scan_id}"
+            validation = scan.get(
+                "validation",
+                {}
+            )
+
+            status = validation.get(
+                "status",
+                "UNKNOWN"
+            )
+
+
+            with st.expander(
+                f"📦 {scan_id} — {status}"
             ):
 
-                st.session_state.selected_scan = scan
+                # -----------------------------------------
+                # IMAGES
+                # -----------------------------------------
 
-            st.divider()
+                col1, col2 = st.columns(2)
 
 
-    # ----------------------------------------------
-    # SHOW SELECTED SCAN
-    # ----------------------------------------------
+                with col1:
 
-    if st.session_state.selected_scan:
+                    front_path = scan.get(
+                        "front_image"
+                    )
 
-        scan = st.session_state.selected_scan
+                    if (
+                        front_path
+                        and os.path.exists(front_path)
+                    ):
 
-        st.subheader("🔎 Scan Details")
+                        st.image(
+                            front_path,
+                            caption="Front Image",
+                            width="stretch"
+                        )
 
-        col1, col2 = st.columns(2)
 
-        with col1:
+                with col2:
 
-            st.write("### 📷 Front Image")
+                    back_path = scan.get(
+                        "back_image"
+                    )
 
-            if os.path.exists(
-                scan["front_image"]
-            ):
+                    if (
+                        back_path
+                        and os.path.exists(back_path)
+                    ):
 
-                st.image(
-                    scan["front_image"],
-                    use_container_width=True
+                        st.image(
+                            back_path,
+                            caption="Back Image",
+                            width="stretch"
+                        )
+
+
+                # -----------------------------------------
+                # PRODUCT DATA
+                # -----------------------------------------
+
+                st.subheader(
+                    "Extracted Information"
                 )
 
-        with col2:
-
-            st.write("### 📷 Back Image")
-
-            if os.path.exists(
-                scan["back_image"]
-            ):
-
-                st.image(
-                    scan["back_image"],
-                    use_container_width=True
+                product_data = scan.get(
+                    "product_data",
+                    {}
                 )
 
-        st.divider()
-
-        product = scan["product"]
-
-        st.subheader(
-            "📄 Extracted Declarations"
-        )
-
-        c1, c2, c3 = st.columns(3)
-
-        with c1:
-            st.metric(
-                "MRP",
-                product.get("mrp")
-                or "Not detected"
-            )
-
-        with c2:
-            st.metric(
-                "Net Quantity",
-                product.get("quantity")
-                or "Not detected"
-            )
-
-        with c3:
-            st.metric(
-                "Manufacturer",
-                product.get("manufacturer")
-                or "Not detected"
-            )
-
-        c1, c2 = st.columns(2)
-
-        with c1:
-            st.metric(
-                "Importer",
-                product.get("importer")
-                or "Not detected"
-            )
-
-        with c2:
-            st.metric(
-                "Consumer Care",
-                product.get("consumer_care")
-                or "Not detected"
-            )
-
-        st.divider()
-
-        if scan["status"] == "COMPLIANT":
-
-            st.success("✅ COMPLIANT")
-
-        else:
-
-            st.warning("⚠️ NEEDS REVIEW")
-
-        if scan["issues"]:
-
-            st.subheader(
-                "⚠️ Potential Issues"
-            )
-
-            for issue in scan["issues"]:
-
-                st.error(issue)
-
-
-# ==================================================
-# SCAN PRODUCT PAGE
-# ==================================================
-
-else:
-
-    st.markdown(
-        '<div class="main-title">'
-        '🔍 LabelGuard'
-        '</div>',
-        unsafe_allow_html=True
-    )
-
-    st.markdown(
-        '<div class="subtitle">'
-        'AI-Assisted Packaged Commodity '
-        'Label Compliance Prototype'
-        '</div>',
-        unsafe_allow_html=True
-    )
-
-    st.divider()
-
-    st.subheader(
-        "📷 Scan Product"
-    )
-
-    st.write(
-        "Upload both the **front** and "
-        "**back** images of the package."
-    )
-
-    # ----------------------------------------------
-    # FRONT + BACK UPLOAD
-    # ----------------------------------------------
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        st.markdown(
-            "### 📷 Front Side"
-        )
-
-        front_image = st.file_uploader(
-            "Upload Front Image",
-            type=[
-                "jpg",
-                "jpeg",
-                "png"
-            ],
-            key="front"
-        )
-
-    with col2:
-
-        st.markdown(
-            "### 📷 Back Side"
-        )
-
-        back_image = st.file_uploader(
-            "Upload Back Image",
-            type=[
-                "jpg",
-                "jpeg",
-                "png"
-            ],
-            key="back"
-        )
-
-
-    # ----------------------------------------------
-    # PREVIEW
-    # ----------------------------------------------
-
-    if front_image or back_image:
-
-        st.divider()
-
-        st.subheader(
-            "👀 Image Preview"
-        )
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-
-            if front_image:
-
-                st.image(
-                    front_image,
-                    caption="Front Side",
-                    use_container_width=True
-                )
-
-        with col2:
-
-            if back_image:
-
-                st.image(
-                    back_image,
-                    caption="Back Side",
-                    use_container_width=True
-                )
-
-
-    # ----------------------------------------------
-    # SCAN BUTTON
-    # ----------------------------------------------
-
-    st.divider()
-
-    scan_button = st.button(
-        "🚀 Scan Product",
-        use_container_width=True,
-        type="primary"
-    )
-
-
-    if scan_button:
-
-        if not front_image:
-
-            st.error(
-                "Please upload the front image."
-            )
-
-            st.stop()
-
-        if not back_image:
-
-            st.error(
-                "Please upload the back image."
-            )
-
-            st.stop()
-
-
-        # ------------------------------------------
-        # CREATE SCAN ID
-        # ------------------------------------------
-
-        scan_id = create_scan_id()
-
-        os.makedirs(
-            "uploads",
-            exist_ok=True
-        )
-
-
-        # ------------------------------------------
-        # SAVE IMAGES
-        # ------------------------------------------
-
-        front_path = os.path.join(
-            "uploads",
-            f"{scan_id}_front.jpg"
-        )
-
-        back_path = os.path.join(
-            "uploads",
-            f"{scan_id}_back.jpg"
-        )
-
-
-        with open(
-            front_path,
-            "wb"
-        ) as file:
-
-            file.write(
-                front_image.getbuffer()
-            )
-
-
-        with open(
-            back_path,
-            "wb"
-        ) as file:
-
-            file.write(
-                back_image.getbuffer()
-            )
-
-
-        # ------------------------------------------
-        # OCR FRONT
-        # ------------------------------------------
-
-        with st.spinner(
-            "🔎 Scanning front image..."
-        ):
-
-            try:
-
-                front_ocr = run_ocr(
-                    front_path
-                )
-
-            except Exception as e:
-
-                st.error(
-                    "Front image OCR failed."
-                )
-
-                st.exception(e)
-
-                st.stop()
-
-
-        # ------------------------------------------
-        # OCR BACK
-        # ------------------------------------------
-
-        with st.spinner(
-            "🔎 Scanning back image..."
-        ):
-
-            try:
-
-                back_ocr = run_ocr(
-                    back_path
-                )
-
-            except Exception as e:
-
-                st.error(
-                    "Back image OCR failed."
-                )
-
-                st.exception(e)
-
-                st.stop()
-
-
-        # ------------------------------------------
-        # COMBINE OCR
-        # ------------------------------------------
-
-        all_ocr = (
-            front_ocr +
-            back_ocr
-        )
-
-
-        # ------------------------------------------
-        # PARSE
-        # ------------------------------------------
-
-        with st.spinner(
-            "🧠 Extracting product information..."
-        ):
-
-            product = parse_product(
-                all_ocr
-            )
-
-
-        # ------------------------------------------
-        # VALIDATE
-        # ------------------------------------------
-
-        validation = validate_product(
-            product,
-            all_ocr
-        )
-
-
-        # ------------------------------------------
-        # CONFIDENCE
-        # ------------------------------------------
-
-        average_confidence = (
-            get_average_confidence(all_ocr)
-        )
-
-
-        # ------------------------------------------
-        # SAVE TO HISTORY
-        # ------------------------------------------
-
-        from datetime import datetime
-
-        scan_data = {
-
-            "scan_id": scan_id,
-
-            "date": datetime.now().strftime(
-                "%Y-%m-%d %H:%M:%S"
-            ),
-
-            "front_image": front_path,
-
-            "back_image": back_path,
-
-            "product": product,
-
-            "status": validation["status"],
-
-            "issues": validation["issues"],
-
-            "ocr_confidence": average_confidence
-        }
-
-
-        save_scan(scan_data)
-
-
-        # ------------------------------------------
-        # DISPLAY RESULT
-        # ------------------------------------------
-
-        st.divider()
-
-        st.subheader(
-            "📊 Compliance Result"
-        )
-
-
-        if validation["status"] == "COMPLIANT":
-
-            st.success(
-                "✅ COMPLIANT"
-            )
-
-        else:
-
-            st.warning(
-                "⚠️ NEEDS REVIEW"
-            )
-
-
-        # ------------------------------------------
-        # DECLARATIONS
-        # ------------------------------------------
-
-        st.subheader(
-            "📄 Extracted Declarations"
-        )
-
-
-        c1, c2, c3 = st.columns(3)
-
-
-        with c1:
-
-            st.metric(
-                "MRP",
-                product["mrp"]
-                or "Not detected"
-            )
-
-
-        with c2:
-
-            st.metric(
-                "Net Quantity",
-                product["quantity"]
-                or "Not detected"
-            )
-
-
-        with c3:
-
-            st.metric(
-                "Manufacturer",
-                product["manufacturer"]
-                or "Not detected"
-            )
-
-
-        c1, c2 = st.columns(2)
-
-
-        with c1:
-
-            st.metric(
-                "Importer",
-                product["importer"]
-                or "Not detected"
-            )
-
-
-        with c2:
-
-            st.metric(
-                "Consumer Care",
-                product["consumer_care"]
-                or "Not detected"
-            )
-
-
-        # ------------------------------------------
-        # CONFIDENCE
-        # ------------------------------------------
-
-        st.subheader(
-            "🎯 OCR Confidence"
-        )
-
-        st.progress(
-            min(
-                max(
-                    average_confidence,
-                    0
-                ),
-                1
-            )
-        )
-
-        st.write(
-            f"Average OCR confidence: "
-            f"**{average_confidence * 100:.2f}%**"
-        )
-
-
-        # ------------------------------------------
-        # ISSUES
-        # ------------------------------------------
-
-        if validation["issues"]:
-
-            st.subheader(
-                "⚠️ Potential Issues"
-            )
-
-            for issue in validation["issues"]:
-
-                st.error(issue)
-
-
-        # ------------------------------------------
-        # RAW OCR
-        # ------------------------------------------
-
-        with st.expander(
-            "🔎 View Raw OCR Results"
-        ):
-
-            for item in all_ocr:
 
                 st.write(
-                    f"**{item['text']}**"
-                )
-
-                st.caption(
-                    f"Confidence: "
-                    f"{item['confidence'] * 100:.2f}%"
+                    "**MRP:**",
+                    product_data.get("mrp")
                 )
 
                 st.write(
-                    f"Bounding box: "
-                    f"{item['box']}"
+                    "**Net Quantity:**",
+                    product_data.get("quantity")
                 )
 
-                st.divider()
+                st.write(
+                    "**Manufacturer:**",
+                    product_data.get("manufacturer")
+                )
+
+                st.write(
+                    "**Importer:**",
+                    product_data.get("importer")
+                )
+
+                st.write(
+                    "**Consumer Care:**",
+                    product_data.get("consumer_care")
+                )
 
 
-        st.success(
-            "📚 Scan saved to History."
-        )
+                # -----------------------------------------
+                # ISSUES
+                # -----------------------------------------
+
+                issues = validation.get(
+                    "issues",
+                    []
+                )
+
+
+                if issues:
+
+                    st.subheader(
+                        "⚠️ Issues"
+                    )
+
+                    for issue in issues:
+
+                        st.warning(issue)
