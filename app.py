@@ -3,7 +3,7 @@ import streamlit as st
 
 from scan.scan import scan_product
 from ocr import run_ocr, get_average_confidence
-from parser import parse_product
+from test_parser import parse_product
 from validator import validate_product
 from history import save_scan, load_history, create_scan_id
 
