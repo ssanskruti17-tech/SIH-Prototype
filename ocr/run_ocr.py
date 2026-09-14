@@ -2,7 +2,6 @@ import os
 import json
 import streamlit as st
 
-# Fix for CPU oneDNN/PIR issue
 os.environ["FLAGS_enable_pir_api"] = "0"
 os.environ["FLAGS_use_mkldnn"] = "0"
 
@@ -11,7 +10,6 @@ from paddleocr import PaddleOCR
 
 @st.cache_resource
 def get_ocr_engine():
-
     return PaddleOCR(
         lang="en",
         enable_mkldnn=False,
@@ -22,7 +20,6 @@ def get_ocr_engine():
 
 
 def run_ocr(image_path):
-
     ocr_engine = get_ocr_engine()
 
     results = ocr_engine.predict(image_path)
@@ -56,7 +53,6 @@ def run_ocr(image_path):
             box = []
 
             if i < len(boxes):
-
                 if hasattr(boxes[i], "tolist"):
                     box = boxes[i].tolist()
                 else:
@@ -69,16 +65,3 @@ def run_ocr(image_path):
             })
 
     return detections
-
-
-def get_average_confidence(results):
-
-    if not results:
-        return 0.0
-
-    total = sum(
-        item["confidence"]
-        for item in results
-    )
-
-    return total / len(results)

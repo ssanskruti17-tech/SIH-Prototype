@@ -1,16 +1,26 @@
-from paddleocr import PaddleOCR
+from ocr.ocr import process_ocr
 
-ocr = PaddleOCR(
-    lang="en",
-    use_doc_orientation_classify=False,
-    use_doc_unwarping=False,
-    use_textline_orientation=False,
-    enable_mkldnn=False
-)
 
-image_path = "test.jpg"
+image_path = "front.jpeg"
 
-results = ocr.predict(image_path)
+result = process_ocr(image_path)
 
-for result in results:
-    print(result.json)
+
+print("\n========== OCR TEST ==========")
+
+print("\nDetected Text:")
+for text in result["texts"]:
+    print("-", text)
+
+print("\nOCR Confidence:")
+print(result["confidence"])
+
+print("\nBounding Boxes:")
+
+for item in result["boxes"]:
+    print(item)
+
+print("\nCombined Text:")
+print(result["combined_text"])
+
+print("\n==============================")
